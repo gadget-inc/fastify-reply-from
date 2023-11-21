@@ -6,7 +6,7 @@ const From = require('..')
 const http = require('node:http')
 const got = require('got')
 
-function serverWithCustomError (stopAfter, statusCodeToFailOn) {
+function serverWithCustomError(stopAfter, statusCodeToFailOn) {
   let requestCount = 0
   return http.createServer((req, res) => {
     if (requestCount++ < stopAfter) {
@@ -21,7 +21,7 @@ function serverWithCustomError (stopAfter, statusCodeToFailOn) {
   })
 }
 
-async function setupServer (t, fromOptions = {}, statusCodeToFailOn = 500, stopAfter = 4) {
+async function setupServer(t, fromOptions = {}, statusCodeToFailOn = 500, stopAfter = 4) {
   const target = serverWithCustomError(stopAfter, statusCodeToFailOn)
   await target.listen({ port: 0 })
   t.teardown(target.close.bind(target))
