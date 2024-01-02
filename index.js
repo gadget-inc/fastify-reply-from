@@ -23,11 +23,6 @@ const {
 } = require('./lib/errors')
 
 const fastifyReplyFrom = fp(function from (fastify, opts, next) {
-  const contentTypesToEncode = new Set([
-    'application/json',
-    ...(opts.contentTypesToEncode || [])
-  ])
-
   const retryMethods = new Set(opts.retryMethods || [
     'GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
@@ -80,7 +75,7 @@ const fastifyReplyFrom = fp(function from (fastify, opts, next) {
     const headers = sourceHttp2 ? filterPseudoHeaders(req.headers) : { ...req.headers }
     headers.host = url.host
     const qs = getQueryString(url.search, req.url, opts)
-    let body = ''
+    let body = undefined
 
     if (opts.body !== undefined) {
       if (opts.body !== null) {
@@ -88,39 +83,12 @@ const fastifyReplyFrom = fp(function from (fastify, opts, next) {
           throw new Error('sending a new body as a stream is not supported yet')
         }
 
-        if (opts.contentType) {
-          body = opts.body
-        } else {
-          body = JSON.stringify(opts.body)
-          opts.contentType = 'application/json'
-        }
-
+        body = opts.body
         headers['content-length'] = Buffer.byteLength(body)
         headers['content-type'] = opts.contentType
       } else {
-        body = undefined
-        headers['content-length'] = 0
+        delete headers['content-length']
         delete headers['content-type']
-      }
-    } else if (this.request.body) {
-      if (this.request.body instanceof Stream) {
-        body = this.request.body
-      } else {
-        // Per RFC 7231 §3.1.1.5 if this header is not present we MAY assume application/octet-stream
-        const contentType = req.headers['content-type'] || 'application/octet-stream'
-        // detect if body should be encoded as JSON
-        // supporting extended content-type header formats:
-        // - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type
-        const lowerCaseContentType = contentType.toLowerCase()
-        const plainContentType = lowerCaseContentType.indexOf(';') > -1
-          ? lowerCaseContentType.slice(0, lowerCaseContentType.indexOf(';'))
-          : lowerCaseContentType
-        const shouldEncodeJSON = contentTypesToEncode.has(plainContentType)
-        // transparently support JSON encoding
-        body = shouldEncodeJSON ? JSON.stringify(this.request.body) : this.request.body
-        // update origin request headers after encoding
-        headers['content-length'] = Buffer.byteLength(body)
-        headers['content-type'] = contentType
       }
     }
 
@@ -136,8 +104,6 @@ const fastifyReplyFrom = fp(function from (fastify, opts, next) {
         throw new Error(`Rewriting the body when doing a ${method} is not allowed`)
       }
     }
-
-    !disableRequestLogging && this.request.log.info({ source }, 'fetching from remote server')
 
     const requestHeaders = rewriteRequestHeaders(this.request, headers)
     const contentLength = requestHeaders['content-length']
@@ -169,6 +135,7 @@ const fastifyReplyFrom = fp(function from (fastify, opts, next) {
     } else {
       requestImpl = createRequestRetry(request, this, getDefaultDelay)
     }
+    this.request.log.info({ method: req.method, source, hasBody: body?.length >= 0, contentLength }, 'fetching from remote server')
 
     requestImpl({ method, url, qs, headers: requestHeaders, body }, (err, res) => {
       if (err) {
@@ -201,7 +168,7 @@ const fastifyReplyFrom = fp(function from (fastify, opts, next) {
       }
       this.code(res.statusCode)
       if (onResponse) {
-        onResponse(this.request, this, res.stream)
+        onResponse(this.request, this, res)
       } else {
         this.send(res.stream)
       }
